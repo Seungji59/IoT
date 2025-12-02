@@ -1,0 +1,43 @@
+import time
+import board
+import adafruit_dht
+import json
+import sys
+
+
+dht_device = adafruit_dht.DHT22(board.D4)
+
+try:
+    temperature_c = dht_device.temperature
+    humidity = dht_device.humidity
+    if temperature_c is not None and humidity is not None:
+        output = {"temperature": temperature_c, "humidity": humidity}
+    else:
+        output = {"error": "Sensor returned None"}
+except RuntimeError as error:
+    output = {"error": str(error)}
+except Exception as e:
+    output = {"error": f"Unexpected error: {e}"}
+finally:
+    dht_device.exit()
+    print(json.dumps(output))  # JSON 형식으로 출력
+    sys.exit(0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

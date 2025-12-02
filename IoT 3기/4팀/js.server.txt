@@ -1,0 +1,382 @@
+// server.js (수정된 코드)
+
+const express = require('express');
+const http = require('http');
+const WebSocket = require('ws');
+const mysql = require('mysql2/promise');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const crypto = require('crypto');
+const fetch = require('node-fetch');
+
+const app = express();
+app.use(cors());
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
+
+// --- MariaDB 연결 설정 ---
+const pool = mysql.createPool({
+    host: 'localhost',
+    user: 'myuser', // ⭐ 실제 MariaDB 사용자 이름으로 변경하세요.
+    password: 'mypassword', // ⭐ 실제 MariaDB 비밀번호로 변경하세요.
+    database: 'myapp_db', // ⭐ 실제 데이터베이스 이름으로 변경하세요.
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
+
+// DB 연결 테스트 및 'users' 테이블 생성
+(async () => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        console.log('✅ MariaDB 연결 풀 성공적으로 가져옴.');
+
+        const createUsersTableSql = `
+CREATE TABLE IF NOT EXISTS users (
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    id VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    phone VARCHAR(20),
+    birth DATE,
+    profile_image_base64 LONGTEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);`;
+        await connection.execute(createUsersTableSql);
+        console.log('✅ \'users\' 테이블 준비 완료.');
+        
+        // ⭐ dose_history 테이블 생성 쿼리 추가 ⭐
+        const createDoseHistoryTableSql = `
+CREATE TABLE IF NOT EXISTS dose_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    medicine_name VARCHAR(255) NOT NULL,
+    date DATE NOT NULL,
+    medicine_time TIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);`;
+        await connection.execute(createDoseHistoryTableSql);
+        console.log('✅ \'dose_history\' 테이블 준비 완료.');
+
+    } catch (err) {
+        console.error('❌ MariaDB 연결 또는 테이블 생성 실패:', err);
+        process.exit(1);
+    } finally {
+        if (connection) connection.release();
+    }
+})();
+
+// --- HTTP 및 WebSocket 서버 통합 설정 ---
+const HTTP_PORT = 5000;
+const WS_PORT = 3001;
+
+// ⭐ Node-RED가 실행 중인 라즈베리 파이 또는 Node-RED 서버의 IP 주소 ⭐
+const RASPBERRY_PI_IP = "192.168.0.7";
+
+app.listen(HTTP_PORT, '0.0.0.0', () => {
+    console.log(`🚀 HTTP 서버가 ${HTTP_PORT}번 포트에서 실행 중입니다.`);
+});
+
+const wss = new WebSocket.Server({ port: WS_PORT, path: '/ws' });
+
+wss.on('listening', () => {
+    console.log(`📡 WebSocket 서버가 ${WS_PORT}번 포트에서 실행 중입니다. (경로: /ws)`);
+});
+
+const connectedClients = new Map();
+
+function logConnectedClients() {
+    console.log(`Current connected clients: ${connectedClients.size} users`);
+    connectedClients.forEach((ws, userId) => {
+        console.log(`   - User ID: ${userId}, WebSocket ReadyState: ${ws.readyState}`);
+    });
+}
+
+wss.on('connection', ws => {
+    console.log('Client connected to WebSocket.');
+
+    ws.on('message', async message => {
+        let parsedMessage;
+        try {
+            parsedMessage = JSON.parse(message.toString());
+        } catch (e) {
+            console.error('❌ WebSocket 메시지 파싱 오류:', e);
+            return;
+        }
+
+        // 1. 센서 데이터 처리 로직
+        if (parsedMessage.temperature !== undefined && parsedMessage.humidity !== undefined) {
+            parsedMessage.created_at = new Date().toISOString();
+            
+            wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({ status: 'success', type: 'sensor_data', data: parsedMessage }));
+                }
+            });
+            console.log('✅ 센서 데이터가 모든 연결된 클라이언트에게 브로드캐스트되었습니다.');
+
+        }
+        // 2. 사용자 ID 등록 메시지 처리
+        else if (parsedMessage.type === 'register_user_ws_client' && parsedMessage.userId) {
+            const userId = String(parsedMessage.userId);
+            
+            if (connectedClients.has(userId)) {
+                const existingWs = connectedClients.get(userId);
+                if (existingWs && existingWs !== ws && existingWs.readyState === WebSocket.OPEN) {
+                    console.log(`경고: 기존 사용자 '${userId}'의 연결을 닫고 새로운 연결로 대체합니다.`);
+                    existingWs.close(1000, 'New connection established for the same user.');
+                }
+            }
+            
+            ws.userId = userId;
+            connectedClients.set(userId, ws);
+            console.log(`⭐ 사용자 '${userId}'의 WebSocket 클라이언트 등록됨.`);
+            logConnectedClients();
+        }
+        // ⭐ 3. Node-RED로부터의 재고 업데이트 푸시 메시지 처리 ⭐
+        else if (parsedMessage.type === 'stock_update_from_nodered' && parsedMessage.data) {
+            console.log('📦 Node-RED로부터 재고 업데이트 푸시 수신:', parsedMessage.data);
+            const stockData = parsedMessage.data;
+
+            wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({
+                        type: 'medicine_count_update_all_slots',
+                        data: stockData
+                    }));
+                }
+            });
+            console.log('✅ Node-RED에서 받은 재고 데이터를 모든 연결된 앱 클라이언트로 브로드캐스트했습니다.');
+        }
+        // ⭐ 4. 앱에서 보낸 '잔여 개수 계산 명령' 처리 ⭐
+        else if (parsedMessage.command === 'calculate_slot_counts') {
+            console.log('📦 앱으로부터 잔여 개수 계산 명령 수신 (HTTP GET 방식).');
+            
+            let actualCounts = [];
+            try {
+                // Node-RED의 HTTP 엔드포인트는 실제 센서 데이터를 읽어올 것입니다.
+                const nodeRedUrl = `http://${RASPBERRY_PI_IP}:1880/get_medicine_counts`; // Node-RED에서 설정한 HTTP 엔드포인트
+                console.log(`Node-RED 엔드포인트 호출: ${nodeRedUrl}`);
+                const response = await fetch(nodeRedUrl);
+                
+                if (!response.ok) {
+                    throw new Error(`Node-RED 응답 오류: ${response.status} ${response.statusText}`);
+                }
+                actualCounts = await response.json();
+                console.log('✅ Node-RED로부터 약 개수 데이터 수신 (HTTP fetch):', actualCounts);
+
+            } catch (error) {
+                console.error('❌ Node-RED로부터 약 개수 데이터를 가져오는 중 오류 발생 (HTTP fetch):', error);
+                // 오류 발생 시 기본값 또는 오류 메시지 전송
+                actualCounts = [
+                    { slot: "칸1", count: 0 },
+                    { slot: "칸2", count: 0 },
+                    { slot: "칸3", count: 0 }
+                ];
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'error',
+                        message: `약 개수 데이터를 가져올 수 없습니다: ${error.message}`
+                    }));
+                }
+            }
+            
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'medicine_count_update_all_slots',
+                    data: actualCounts
+                }));
+                console.log('✅ 약 개수 데이터 앱으로 전송 완료 (HTTP fetch).');
+            } else {
+                console.warn('⚠️ 요청한 클라이언트의 WebSocket 상태가 OPEN이 아니어서 잔여 개수 데이터를 전송할 수 없습니다.');
+            }
+        }
+        // 5. 알림 확인 응답 처리
+        else if (parsedMessage.type === 'alarm_ack' && parsedMessage.alarmId && ws.userId) {
+            console.log(`🔔 사용자 '${ws.userId}'로부터 알림 ID '${parsedMessage.alarmId}' 확인 응답 수신.`);
+        }
+        // 6. WebSocket을 통해 'alarm' 타입 메시지가 수신된 경우: 사용자별 알림 발송
+        else if (parsedMessage.type === 'alarm' && parsedMessage.notificationTitle && parsedMessage.notificationMessage) {
+            const { targetUserId, notificationTitle, notificationMessage } = parsedMessage;
+
+            let notificationSent = false;
+            
+            if (targetUserId) {
+                const client = connectedClients.get(String(targetUserId));
+                if (client && client.readyState === WebSocket.OPEN) {
+                    try {
+                        client.send(JSON.stringify({
+                            type: 'alarm',
+                            notificationTitle: notificationTitle,
+                            notificationMessage: notificationMessage,
+                            timestamp: new Date().toISOString()
+                        }));
+                        notificationSent = true;
+                        console.log(`✅ 사용자 '${targetUserId}'에게 알림 전송 성공 (WS-Alarm).`);
+                    } catch (e) {
+                        console.error(`❌ 사용자 '${targetUserId}'에게 알림 전송 실패 (WS-Alarm):`, e);
+                    }
+                } else {
+                    console.warn(`⚠️ 대상 사용자 '${targetUserId}'의 WebSocket 클라이언트가 연결되어 있지 않거나, 상태가 OPEN이 아닙니다.`);
+                    logConnectedClients();
+                }
+            } 
+            else {
+                let clientsSentTo = 0;
+                connectedClients.forEach((client, userId) => {
+                    if (client.readyState === WebSocket.OPEN) {
+                        try {
+                            client.send(JSON.stringify({
+                                type: 'alarm',
+                                notificationTitle: notificationTitle,
+                                notificationMessage: notificationMessage,
+                                timestamp: new Date().toISOString()
+                            }));
+                            clientsSentTo++;
+                        } catch (e) {
+                            console.error(`❌ 사용자 '${userId}'에게 알림 메시지 전송 실패 (WS-Alarm 브로드캐스트):`, e);
+                        }
+                    }
+                });
+                notificationSent = (clientsSentTo > 0);
+                if (notificationSent) {
+                    console.log(`✅ ${clientsSentTo}개의 모든 로그인된 클라이언트에게 알림이 브로드캐스트되었습니다 (WS-Alarm).`);
+                } else {
+                    console.warn('⚠️ 알림을 전송할 수 있는 활성 로그인된 클라이언트가 없습니다 (WS-Alarm 브로드캐스트).');
+                    logConnectedClients();
+                }
+            }
+        }
+        // 7. 알 수 없는 메시지 처리
+        else {
+            console.warn('⚠️ 수신된 WebSocket 메시지가 처리할 수 있는 형식이 아닙니다:', parsedMessage);
+        }
+    });
+
+    ws.on('close', () => {
+        console.log('Client disconnected from WebSocket.');
+        // 연결 끊김 시 connectedClients Map에서 해당 WebSocket 제거 (userId를 사용하여)
+        for (let [userId, clientWs] of connectedClients.entries()) {
+            if (clientWs === ws) {
+                connectedClients.delete(userId);
+                console.log(`❌ 사용자 '${userId}'의 WebSocket 연결이 끊어졌습니다.`);
+                break;
+            }
+        }
+        logConnectedClients();
+    });
+
+    ws.on('error', error => {
+        console.error('WebSocket 오류:', error);
+    });
+});
+
+// --- HTTP API 엔드포인트 정의 (회원가입/로그인) ---
+
+// 1. 서버 상태 확인을 위한 기본 라우트 (기존 유지)
+app.get('/', (req, res) => {
+    res.send('Node.js 서버가 정상적으로 실행 중입니다!');
+});
+
+// 2. 회원가입 API (기존 유지)
+app.post('/signup', async (req, res) => {
+    const { id, password, name, phone, birth, profile_image_base64 } = req.body;
+    if (!id || !password || !name) {
+        return res.status(400).json({ status: 'fail', message: '아이디, 비밀번호, 이름은 필수 입력 항목입니다.' });
+    }
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        const [rows] = await connection.execute('SELECT id FROM users WHERE id = ?', [id]);
+        if (rows.length > 0) {
+            return res.status(409).json({ status: 'fail', message: '이미 존재하는 아이디입니다. 다른 아이디를 사용해주세요.' });
+        }
+        const password_hash = crypto.createHash('sha256').update(password).digest('hex');
+        const sql = 'INSERT INTO users (id, password_hash, name, phone, birth, profile_image_base64) VALUES (?, ?, ?, ?, ?, ?)';
+        const values = [id, password_hash, name, phone, birth, profile_image_base64];
+        await connection.execute(sql, values);
+        console.log(`회원가입 성공: 사용자 ID - ${id}`);
+        res.status(201).json({ status: 'success', message: '회원가입이 완료되었습니다!' });
+    } catch (error) {
+        console.error('회원가입 오류:', error);
+        res.status(500).json({ status: 'error', message: '회원가입 중 서버 오류가 발생했습니다.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// 3. 로그인 API (기존 유지)
+app.post('/login', async (req, res) => {
+    const { id, password } = req.body;
+    if (!id || !password) {
+        return res.status(400).json({ status: 'fail', message: '아이디와 비밀번호를 모두 입력해주세요.' });
+    }
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        const [rows] = await connection.execute('SELECT user_id, id, password_hash FROM users WHERE id = ?', [id]);
+        if (rows.length === 0) {
+            return res.status(401).json({ status: 'fail', message: '아이디 또는 비밀번호가 올바르지 않습니다.' });
+        }
+        const user = rows[0];
+        const hashedPasswordAttempt = crypto.createHash('sha256').update(password).digest('hex');
+        if (hashedPasswordAttempt === user.password_hash) {
+            console.log(`로그인 성공: 사용자 ID - ${user.id}`);
+            res.status(200).json({ status: 'success', message: '로그인 성공!', user_id: user.user_id, username: user.id });
+        } else {
+            res.status(401).json({ status: 'fail', message: '아이디 또는 비밀번호가 올바르지 않습니다.' });
+        }
+    } catch (error) {
+        console.error('로그인 오류:', error);
+        res.status(500).json({ status: 'error', message: '로그인 중 서버 오류가 발생했습니다.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// ⭐ 복용 기록을 가져오는 API 엔드포인트 추가 및 수정 ⭐
+// 앱에서 이 HTTP 엔드포인트를 호출하여 모든 복용 기록을 가져옵니다.
+app.get('/api/dosage-records', async (req, res) => {
+    console.log('📦 /api/dosage-records 요청 수신 (모든 복용 기록 조회).');
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        // date와 medicine_time만 선택하고, 날짜와 시간 순으로 정렬합니다.
+        const [rows] = await connection.execute(
+            'SELECT date, medicine_time FROM dose_history ORDER BY date ASC, medicine_time ASC;'
+        );
+
+        const formattedRecords = rows.map(record => {
+            // MySQL에서 Date와 Time 타입이 Node.js로 넘어올 때 Date 객체로 변환될 수 있습니다.
+            // .toISOString().slice()를 사용하여 YYYY-MM-DD와 HH:MM:SS 부분을 추출하여 조합합니다.
+            const datePart = record.date instanceof Date ? record.date.toISOString().slice(0, 10) : record.date;
+            const timePart = record.medicine_time instanceof Date ? record.medicine_time.toISOString().slice(11, 19) : record.medicine_time;
+
+            const combinedDateTimeString = `${datePart}T${timePart}`;
+            const dosageDateTime = new Date(combinedDateTimeString); // Date 객체 생성
+
+            return {
+                dosageDateTime: dosageDateTime.toISOString() // 앱이 파싱할 수 있는 ISO 8601 문자열
+            };
+        });
+
+        console.log(`✅ ${formattedRecords.length}개의 복용 기록을 성공적으로 조회했습니다.`);
+        res.json({
+            status: 'success',
+            message: 'All dosage records fetched successfully',
+            data: formattedRecords
+        });
+
+    } catch (error) {
+        console.error('❌ 모든 복용 기록을 가져오는 중 데이터베이스 오류 발생:', error);
+        res.status(500).json({ status: 'error', message: '모든 복용 기록을 가져오는 중 서버 오류가 발생했습니다.' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// --- 404 Not Found 핸들러 ---
+app.use((req, res, next) => {
+    console.log(`🤷‍♂️ 정의되지 않은 요청: ${req.method} ${req.originalUrl}`);
+    res.status(404).send(`요청하신 경로 (${req.originalUrl})를 찾을 수 없거나 지원하지 않는 HTTP 메서드 (${req.method})입니다.`);
+});
