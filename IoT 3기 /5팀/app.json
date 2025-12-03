@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "TIBO",
+    "slug": "TIBO",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "scheme": "kdigital",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "icon": "./assets/icon.png",
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tibo.robo-camera",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "Google OAuth",
+            "CFBundleURLSchemes": [
+              "kdigital"
+            ]
+          }
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "tuk.kdigital.login",
+      "permissions": [
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "kdigital"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-localization",
+      "expo-secure-store",
+      "expo-local-authentication"
+    ],
+    "extra": {
+      "googleWebClientId": "706502232476-22nfajuo4f4luvs0n8ofp9h1svjd1s9m.apps.googleusercontent.com",
+      "googleIosClientId": "706502232476-22nfajuo4f4luvs0n8ofp9h1svjd1s9m.apps.googleusercontent.com",
+      "googleAndroidClientId": "706502232476-22nfajuo4f4luvs0n8ofp9h1svjd1s9m.apps.googleusercontent.com",
+      "eas": {
+        "projectId": "your-project-id"
+      }
+    }
+  }
+}
