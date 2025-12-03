@@ -1,0 +1,99 @@
+# -*- coding: utf-8 -*-
+# 파일명: calibration.py
+
+import sys
+import RPi.GPIO as GPIO
+from hx711 import HX711
+import time
+
+# --- 설정 ---
+DT_PIN = 13
+SCK_PIN = 6
+# -----------
+
+def get_average_reading(hx, times=20):
+    """
+    get_raw_data를 여러 번 호출하여 평균을 계산하는 함수
+    """
+    readings = []
+    for _ in range(times):
+        # [0]을 추가하여 리스트에서 첫 번째(이자 유일한) 숫자 값을 추출합니다.
+        readings.append(hx.get_raw_data()[0])
+        time.sleep(0.01)
+    
+    if not readings:
+        return False
+        
+    return sum(readings) / len(readings)
+
+def calibrate():
+    """로드셀 보정을 수행하는 메인 함수"""
+    hx = HX711(dout_pin=DT_PIN, pd_sck_pin=SCK_PIN)
+
+    try:
+        hx.power_up()
+        time.sleep(0.5)
+
+        # --- 1단계: 영점(Offset) 설정 ---
+        print("="*30)
+        print("1단계: 영점(Offset) 설정")
+        print("로드셀 위에 아무것도 올리지 마세요.")
+        input("준비가 되면 Enter 키를 누르세요...")
+
+        offset = get_average_reading(hx, times=20)
+        if offset is False:
+            print("[오류] 데이터 측정 실패. 연결을 확인하세요.")
+            return
+
+        print(f"영점 설정 완료. Offset 값: {offset}")
+        
+        # --- 2단계: 알려진 무게로 스케일(Scale) 계산 ---
+        print("\n" + "="*30)
+        print("2단계: 스케일(Scale) 계산")
+        
+        known_weight_g = 0.0
+        while True:
+            try:
+                known_weight_g = float(input("로드셀 위에 올려놓을 기준 무게를 그램(g) 단위로 입력하세요: "))
+                if known_weight_g > 0:
+                    break
+                else:
+                    print("무게는 0보다 커야 합니다.")
+            except ValueError:
+                print("숫자만 입력해주세요.")
+
+        print(f"\n이제 {known_weight_g}g 짜리 물체를 로드셀 위에 올려주세요.")
+        input("준비가 되면 Enter 키를 누르세요...")
+
+        raw_value_known_weight = get_average_reading(hx, times=20)
+        if raw_value_known_weight is False:
+            print("[오류] 데이터 측정 실패. 연결을 확인하세요.")
+            return
+
+        value_without_offset = raw_value_known_weight - offset
+        
+        scale_ratio = value_without_offset / known_weight_g
+        
+        # --- 3단계: 보정 결과 출력 ---
+        print("\n" + "="*30)
+        print("보정이 완료되었습니다!")
+        print("아래 두 값을 복사하여 weight.py 파일에 붙여넣으세요.")
+        print("-" * 30)
+        print(f"OFFSET = {offset}")
+        print(f"SCALE = {scale_ratio}")
+        print("-" * 30)
+
+    except (KeyboardInterrupt, SystemExit):
+        print("\n사용자에 의해 프로그램이 중단되었습니다.")
+    except Exception as e:
+        print(f"\n[심각한 오류] 예상치 못한 오류가 발생했습니다: {e}")
+    finally:
+        print("정리 작업을 수행합니다...")
+        hx.power_down()
+        GPIO.cleanup()
+
+if __name__ == "__main__":
+    GPIO.cleanup()
+    GPIO.setmode(GPIO.BCM)
+    calibrate()
+    print("프로그램을 종료합니다.")

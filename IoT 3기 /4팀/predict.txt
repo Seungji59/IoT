@@ -1,0 +1,98 @@
+# predict.py
+# -*- coding: utf-8 -*-
+"""
+CLI wrapper: predict next same-order dose time for a single order.
+- Loads model pickle with NextDoseModel
+- Builds features from now & last_same
+- Prints JSON
+"""
+
+import argparse, json
+import pandas as pd
+
+from load_model import NextDoseModel, next_time_from
+
+# Optional dependency; if unavailable, provide minimal fallbacks
+try:
+    from fetch_features import get_last_same_time, build_features as _ext_build_features
+except Exception:
+    _ext_build_features = None
+    get_last_same_time = None
+
+def parse_now(s: str | None) -> pd.Timestamp:
+    if not s:
+        return pd.to_datetime("now")
+    dt = pd.to_datetime(s, errors="coerce")
+    if pd.isna(dt):
+        raise SystemExit(json.dumps({"ok": False, "message": f"invalid --now: {s}"} , ensure_ascii=False))
+    return dt
+
+def build_features(now_dt: pd.Timestamp, order: int, last_same_dt: pd.Timestamp) -> dict:
+    """Fallback builder used only if fetch_features.build_features is not available."""
+    import numpy as np
+    hour = now_dt.hour
+    minute = now_dt.minute
+    feats = {
+        "hour": int(hour),
+        "minute": int(minute),
+        "dayofweek": int(now_dt.dayofweek),
+        "hour_sin": float(np.sin(2 * np.pi * hour / 24)),
+        "hour_cos": float(np.cos(2 * np.pi * hour / 24)),
+        "minute_sin": float(np.sin(2 * np.pi * minute / 60)),
+        "minute_cos": float(np.cos(2 * np.pi * minute / 60)),
+        "delta_same_minutes": float((now_dt - last_same_dt).total_seconds() / 60.0),
+        # IMPORTANT: match training column name
+        "복용순서": int(order),
+    }
+    return feats
+
+def main():
+    ap = argparse.ArgumentParser(description="Predict next same-order dose time")
+    ap.add_argument("--model", default="nextdose_model.pkl")
+    ap.add_argument("--order", type=int, required=True)  # 1/2/3
+    ap.add_argument("--now", help="예: '2025-08-11 12:05' (없으면 시스템 시간)")
+    args = ap.parse_args()
+
+    now_dt = parse_now(args.now)
+
+    # Resolve last_same with cutoff<now if possible
+    last_same_dt = None
+    if get_last_same_time is not None:
+        try:
+            last_same_dt = get_last_same_time(args.order, cutoff=now_dt)
+        except TypeError:
+            last_same_dt = get_last_same_time(args.order)
+    if last_same_dt is None:
+        print(json.dumps({"ok": False, "message": f"No last_same for order {args.order}"} , ensure_ascii=False))
+        return
+
+    # Build features
+    if _ext_build_features is not None:
+        feats = _ext_build_features(now_dt, args.order, last_same_dt)
+        # safety alias (if external builder still uses 'order')
+        if "복용순서" not in feats and "order" in feats:
+            feats["복용순서"] = feats["order"]
+    else:
+        feats = build_features(now_dt, args.order, last_same_dt)
+
+    model = NextDoseModel(args.model)
+    minutes = model.predict_minutes(feats)
+    if minutes is None:
+        print(json.dumps({"ok": False, "message": "prediction unavailable"} , ensure_ascii=False))
+        return
+
+    out = {
+        "ok": True,
+        "order": args.order,
+        "now": now_dt.strftime("%Y-%m-%d %H:%M"),
+        "now_ss": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "last_same": last_same_dt.strftime("%Y-%m-%d %H:%M"),
+        "last_same_ss": last_same_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "delta_same_minutes": round((now_dt - last_same_dt).total_seconds() / 60.0, 2),
+        "minutes": round(float(minutes), 2),
+        "next_time": next_time_from(now_dt, minutes)
+    }
+    print(json.dumps(out, ensure_ascii=False))
+
+if __name__ == "__main__":
+    main()
