@@ -86,7 +86,10 @@ Android 애플리케이션과의 연동을 담당합니다.
 
 - https://github.com/pytorch/android-demo-app/tree/master/ObjectDetection
 
-해당 레포지토리는 BSD 3-Clause License를 따르며,
+## License
+
+해당 레포지토리는 [BSD 3-Clause License](https://opensource.org/licenses/BSD-3-Clause)를 따릅니다.
+
 Android 환경에서의 객체 탐지 워크플로우를 이해하기 위한 참고 자료로 활용되었습니다.
 
 본 프로젝트의 전체 시스템 아키텍처 설계, IoT 네트워크 구성,
