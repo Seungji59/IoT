@@ -1,19 +1,19 @@
 # IoT 3기 프로젝트 목록
 
-## 1조
+## 1팀
 - 스마트 쇼핑 카트 (AIOT)
 
-## 2조
+## 2팀
 - (kor) 1인 가구를 위한 IoT 기반 스마트 화분 시스템 
 - (eng) Smartpot-for-Singleperson-Households 
 
-## 3조
+## 3팀
 
 
-## 4조
+## 4팀
 
 
-## 5조
+## 5팀
 - (kor) 로봇 카메라 관리 어플리케이션 
 - (eng) Robo-Camera Management App 
 
