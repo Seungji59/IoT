@@ -9,7 +9,7 @@
 
 ※ 폴더 구조
 ```bash
-IoT 4기
+ex) IoT 4기
 ├── README.md
 ├── 1팀
 │   └── README.md
