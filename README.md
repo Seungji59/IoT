@@ -8,6 +8,7 @@
 4. 확인 후 Merge 처리됩니다.
 
 ※ 폴더 구조
+```bash
 IoT 4기
 ├── README.md
 ├── 1팀
