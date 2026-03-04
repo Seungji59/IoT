@@ -4,7 +4,8 @@
 스마트 쇼핑 카트 (AIOT)
 
 ## 2조
-
+1인 가구를 위한 IoT 기반 스마트 화분 시스템
+SmartPot-for-SinglePerson-Households
 
 ## 3조
 
@@ -13,7 +14,7 @@
 
 
 ## 5조
-
+로봇 카메라 관리 어플리케이션 
 
 ## 📁 IoT 3기 폴더 구조
 
