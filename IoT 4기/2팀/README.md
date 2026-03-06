@@ -1,10 +1,6 @@
 
 **OPEN CV와 안드로이드 API를 활용한 졸음운전 방지 및 휴게 시설 안내 시스템**
 
-ESP32 기반 식물 재배 디바이스와 Raspberry Pi 게이트웨이,
-AWS 클라우드 및 Android 애플리케이션을 연동한
-End-to-End IoT 시스템입니다.
-
 - Team project
 
 ##  개발 및 실행 환경
