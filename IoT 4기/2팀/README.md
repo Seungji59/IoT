@@ -20,9 +20,8 @@
 
 
 ---
-### 🔸 Hardware & MQTT Architecture
+### 🔸 Hardware
 
-<p align="center"><em>ESP32 디바이스와 MQTT 기반 하드웨어 통신 구조</em></p>
 <img width="1600" height="900" alt="image" src="https://github.com/user-attachments/assets/fdc4e3c3-3d95-42d4-9d2e-a7a4a4edc305" />
 
 
