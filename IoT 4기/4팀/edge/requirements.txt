@@ -1,0 +1,9 @@
+# Hardware Libraries
+rplidar-roboticia>=0.9.5
+mpu9250-jmdev>=1.0.0
+
+# Communication
+python-socketio[client]>=5.0.0
+
+# Numerical Computation
+numpy>=2.2.0

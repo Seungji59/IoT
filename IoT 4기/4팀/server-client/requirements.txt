@@ -1,0 +1,4 @@
+Flask
+flask-socketio
+influxdb-client
+python-dotenv

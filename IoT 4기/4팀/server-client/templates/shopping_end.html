@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>쇼핑 종료</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding-top: 100px; background-color: #f5f5f5; }
+        .container { background: white; padding: 40px; border-radius: 10px; display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        p { font-size: 18px; color: #666; }
+        
+        .btn-restart {
+            margin-top: 30px;
+            padding: 15px 30px;
+            font-size: 20px;
+            color: white;
+            background-color: #28a745;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none; /* 링크 밑줄 제거 */
+            display: inline-block;
+        }
+        .btn-restart:hover { background-color: #218838; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏁 쇼핑이 종료되었습니다.</h1>
+        <p>고객님의 쇼핑 데이터(ID: {{ finished_id }})가 저장되었습니다.</p>
+        
+        <a href="/restartShopping" class="btn-restart">🔄 다시 쇼핑하기 (새 ID 발급)</a>
+    </div>
+</body>
+</html>

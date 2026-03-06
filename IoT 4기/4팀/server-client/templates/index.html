@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Smart Shopping Cart Dashboard</title>
+    
+    <link rel="shortcut icon" href="/static/TemplateData/favicon.ico">
+    <link rel="stylesheet" href="/static/TemplateData/style.css">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+  </head>
+  <body>
+    <div id="main-layout">
+        <div id="unity-wrapper">
+            <canvas id="unity-canvas"></canvas>
+            <div id="unity-loading-bar">
+                <div id="unity-progress-bar-empty">
+                    <div id="unity-progress-bar-full"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="info-panel">
+            <h2>📊 관제 대시보드</h2>
+            
+            <div class="info-box">
+                <div class="info-label">🎮 시스템 제어</div>
+                <button id="btnCam" class="btn-camera" onclick="dashboard.toggleCamera()">
+                    CCTV 시점 보기
+                </button>
+                <button id="btnEnd" class="btn-stop" onclick="dashboard.endShopping()" disabled>
+                    🛑 쇼핑 종료 (계산대로 이동하세요)
+                </button>
+            </div>
+
+            <div class="info-box">
+                <div class="info-label">📍 현재 상태 (Status)</div>
+                <div class="info-value" style="display: flex; justify-content: space-between; align-items: flex-end; gap: 10px;">
+                    <div>
+                        <span style="font-size: 0.8em; color: #888;">Position</span><br>
+                        X: <span id="dispX" class="highlight">0.00</span>m / 
+                        Y: <span id="dispY" class="highlight">0.00</span>m
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="font-size: 0.8em; color: #888;">Angle</span><br>
+                        <span id="dispAngle" class="highlight">0</span>°
+                    </div>
+                </div>
+                <!-- <div style="margin-top: 15px; border-top: 1px dashed #555; padding-top: 10px;">
+                    <div class="info-label">📏 총 이동 거리</div>
+                    <div class="info-value"><span id="dispDist" class="dist-val">0.00</span> m</div>
+                </div> -->
+            </div>
+
+            <div class="info-box">
+                <div class="receipt-header"><h3>🧾 영수증</h3></div>
+                <div class="receipt-scroll-area">
+                    <table class="receipt-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 35%;">품명</th>
+                                <th style="width: 25%; text-align:right;">단가</th>
+                                <th style="width: 15%; text-align:center;">수량</th>
+                                <th style="width: 25%; text-align:right;">가격</th>
+                            </tr>
+                        </thead>
+                        <tbody id="receipt-items">
+                            <tr><td></td><td style="text-align:right;"></td><td style="text-align:center;"></td><td style="text-align:right;"></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="receipt-footer">
+                    <div class="total-line"><span></span><span id="total-price"></span></div>
+                </div>
+            </div>
+
+            <div class="info-box">
+                <div class="info-label">⏱️ 가동 시간</div>
+                <div id="timer-display">00:00:00</div>
+            </div>
+
+            <div style="margin-top: auto; color: #666; font-size: 12px; text-align: center;">
+                System: <span id="netStatus" style="color:red">● Offline</span><br>
+                Status: <span id="shopStatus" style="color:#0f0">Shopping...</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="theftModal" class="modal-overlay">
+        <div class="modal-content">
+            <p class="warning-text">🚨 경고 🚨</p>
+            <p>도난 의심 행동이 감지되었습니다!</p>
+            <p id="confidence-val" style="font-size:12px; color:gray;"></p>
+            <button class="close-btn" onclick="closeModal()">확인</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script>
+    var socket = io();
+
+    // 1. 서버 접속 확인용
+    socket.on('connect', () => {
+        console.log("✅ 서버에 연결되었습니다.");
+    });
+
+    // 2. 영수증 업데이트 이벤트 수신 ('update_receipt')
+    socket.on('update_receipt', (data) => {
+        const tbody = document.getElementById('receipt-items');
+        const totalSpan = document.getElementById('total-price');
+
+        // 기존 목록 초기화 (싹 지움)
+        tbody.innerHTML = '';
+
+        const items = data.items;       // 물품 리스트
+        const total = data.grand_total; // 총 합계 금액
+
+        if (items.length === 0) {
+             tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">비어있음</td></tr>';
+        } else {
+            // 리스트를 돌면서 <tr> 생성
+            items.forEach(item => {
+                const tr = document.createElement('tr');
+                
+                // 천단위 콤마 찍기 (LocaleString)
+                const unitPrice = item.price.toLocaleString(); 
+                const totalPrice = item.total.toLocaleString();
+
+                tr.innerHTML = `
+                    <td>${item.name}</td>
+                    <td style="text-align:right;">${unitPrice}</td>
+                    <td style="text-align:center;">${item.count}</td>
+                    <td style="text-align:right;">${totalPrice}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 총액 업데이트 (빨간 글씨 부분)
+        totalSpan.innerText = total.toLocaleString() + " ₩";
+    });
+</script>
+    <script>
+        var socket = io();
+
+        // 1. 서버에서 'show_warning' 신호가 오면 실행
+        socket.on('show_warning', function(data) {
+            var modal = document.getElementById("theftModal");
+            var valText = document.getElementById("confidence-val");
+            
+            // 신뢰도 값 표시 (옵션)
+            valText.innerText = "(신뢰도: " + data.confidence + ")";
+            
+            // 모달 보이게 설정
+            modal.style.display = "block";
+
+            // (선택사항) 3초 뒤에 자동으로 닫기
+            // setTimeout(closeModal, 3000); 
+        });
+
+        // 2. 모달 닫기 함수
+        function closeModal() {
+            document.getElementById("theftModal").style.display = "none";
+        }
+    </script>
+    
+    <script src="/static/js/dashboard.js"></script>
+  </body>
+</html>
