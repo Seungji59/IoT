@@ -1,7 +1,7 @@
 ## 스마트 쇼핑 카트( AIOT )
 - Team project
   
-##  개발 및 실행 환경
+## 🔹 개발 및 실행 환경
 
 - Python, Unitiy, Solid Works, Yolo
 <img width="1219" height="475" alt="image" src="https://github.com/user-attachments/assets/6dc6bb1d-7cd8-4a27-a823-04a74db2ab1d" />
